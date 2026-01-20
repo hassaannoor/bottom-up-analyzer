@@ -18,7 +18,8 @@ export class LeafDetector {
         function visit(node: ts.Node) {
             // Ensure strict inequality for parent range check if needed, but standard logic:
             if (node.getStart() <= offset && node.getEnd() >= offset) {
-                if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+                if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isArrowFunction(node) || ts.isFunctionExpression(node)
+                    || ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) {
                     foundNode = node;
                     
                     if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
@@ -26,9 +27,16 @@ export class LeafDetector {
                             foundName = node.name.getText();
                             foundNameNode = node.name;
                         }
+                    } else if (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) {
+                         foundName = node.name.getText();
+                         foundNameNode = node.name;
                     } else if (node.parent && ts.isVariableDeclaration(node.parent) && node.parent.name) {
                          foundName = node.parent.name.getText();
                          foundNameNode = node.parent.name;
+                    } else if (node.parent && ts.isPropertyAssignment(node.parent) && node.parent.name) {
+                        // This case handles Arrow Functions inside Property Assignments (visited deeper)
+                        foundName = node.parent.name.getText();
+                        foundNameNode = node.parent.name;
                     }
                 }
                 

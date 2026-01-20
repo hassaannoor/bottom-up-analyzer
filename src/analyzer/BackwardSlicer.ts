@@ -75,10 +75,10 @@ export class BackwardSlicer {
             // Open the document of the reference
             const refDoc = await vscode.workspace.openTextDocument(ref.uri);
             
-            // Check if this reference is a function call
+            // Check if this reference is a function call or valid callback usage
             // We use a light AST check
-            const isCall = this.isCallExpression(refDoc, ref.range.start);
-            if (!isCall) continue;
+            const isValidRef = this.isValidReferenceUsage(refDoc, ref.range.start);
+            if (!isValidRef) continue;
 
             // Find who is calling
             const caller = LeafDetector.getEnclosingFunction(refDoc, ref.range.start);
@@ -153,31 +153,61 @@ export class BackwardSlicer {
         });
     }
 
-    private isCallExpression(document: vscode.TextDocument, position: vscode.Position): boolean {
-        // Fast check: get node at position, check if CallExpression
-        // Optimization: Don't parse whole file every time.
-        // But for MVP, repeated parsing is safer than caching stale ASTs.
+    private isValidReferenceUsage(document: vscode.TextDocument, position: vscode.Position): boolean {
         const sf = ts.createSourceFile(document.fileName, document.getText(), ts.ScriptTarget.Latest, true);
         const offset = document.offsetAt(position);
         
-        let isCall = false;
-        function visit(node: ts.Node) {
-            if (node.getStart() <= offset && node.getEnd() >= offset) {
-                if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-                    // Check if the identifier being called overlaps with our reference
-                    // This logic needs to be precise. 
-                    // The 'reference' position is usually the function name.
-                    // So if `foo()` is called, reference is on `foo`. 
-                    // `foo` is the expression of the CallExpression.
-                    if (node.expression.getStart() <= offset && node.expression.getEnd() >= offset) {
-                        isCall = true;
-                    }
-                }
-                ts.forEachChild(node, visit);
-            }
+        const node = this.getNodeAtOffset(sf, offset);
+        if (!node) {
+            console.log(`isValidReferenceUsage: No node found at ${offset}`);
+            return false;
         }
-        visit(sf);
-        return isCall;
+
+        console.log(`isValidReferenceUsage: Checking usage for '${node.getText()}' (Kind: ${ts.SyntaxKind[node.kind]})`);
+
+        // Traverse up to find immediately relevant usage
+        let current: ts.Node = node;
+        while (current.parent) {
+             const parent = current.parent;
+             console.log(`  -> Parent: ${ts.SyntaxKind[parent.kind]} (${parent.getText().substring(0, 20)}...)`);
+
+             if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
+                 // Case 1: Direct Call e.g. foo()
+                 if (parent.expression === current) {
+                     console.log('  -> Match: Direct Call parent.expression === current');
+                     return true;
+                 }
+                 // Case 2: Passed as Argument e.g. use(foo)
+                 if (parent.arguments && parent.arguments.some(arg => arg === current)) {
+                     console.log('  -> Match: Passed as Argument');
+                     return true;
+                 }
+             }
+             
+             // Case 3: Assignment to Object Property
+             if (ts.isPropertyAssignment(parent) || ts.isShorthandPropertyAssignment(parent)) {
+                 console.log('  -> Match: property assignment');
+                 return true;
+             }
+
+             // Case 4: Binary Expression Assignment
+             if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+                 if (parent.right === current) {
+                     console.log('  -> Match: Assigned in binary expression');
+                     return true;
+                 }
+             }
+             
+             if (ts.isBlock(parent) || ts.isSourceFile(parent)) {
+                 console.log('  -> Hit Scope (Block/SourceFile), stopping.');
+                 break;
+             }
+             
+             current = parent;
+        }
+        
+        console.log('  -> No valid usage found.');
+        return false;
     }
 
     private isConditional(document: vscode.TextDocument, position: vscode.Position): boolean {
