@@ -23,7 +23,7 @@ export class BackwardSlicer {
         console.log(`BackwardSlicer: Found leaf function '${leaf.name}'`);
 
         const leafNodeId = this.getNodeId(document.uri, leaf.node);
-        this.addNode(leafNodeId, leaf.name, document.uri, leaf.node);
+        this.addNode(leafNodeId, leaf.name, document.uri, leaf.node, document);
 
         // 2. Start slicing from the leaf
         // We need the location of the function *name* to find references
@@ -87,7 +87,7 @@ export class BackwardSlicer {
                 
                 // Add Node
                 if (!this.nodes.has(callerNodeId)) {
-                    this.addNode(callerNodeId, caller.name, ref.uri, caller.node);
+                    this.addNode(callerNodeId, caller.name, ref.uri, caller.node, refDoc);
                     
                     // Recurse: To recurse, we need the position of the CALLER's name
                     let callerNamePos = refDoc.positionAt(caller.node.getStart());
@@ -132,20 +132,23 @@ export class BackwardSlicer {
         return `${uri.fsPath}:${node.getStart()}`;
     }
 
-    private addNode(id: string, name: string, uri: vscode.Uri, node: ts.Node) {
+    private addNode(id: string, name: string, uri: vscode.Uri, node: ts.Node, document: vscode.TextDocument) {
         const file = uri.fsPath;
-        // Approximation: getting line/char from node start
-        // In a real generic parser we'd map this back from sourcefile, 
-        // but here we implicitly assume we have the doc or can get it.
-        // For efficiency, we store raw start, but for UI we need line/char.
-        // We'll defer line/char computation or assume we have it.
-        // For MVP let's store 0,0 and fix later or pass document.
+        // Calculate line and character
+        const pos = document.positionAt(node.getStart());
+        
+        // If we have a nameNode, maybe point to that?
+        // But the LeafDetector returns the function node. 
+        // For navigation, the start of the function is distinct enough.
+        // Or we could try to find the name location again if we want to be precise.
+        // For now, function start is good.
+
         this.nodes.set(id, {
             id,
             name,
             file,
-            line: 0, 
-            character: 0,
+            line: pos.line, 
+            character: pos.character,
             isRoot: false
         });
     }

@@ -10,6 +10,8 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
+import * as dagre from 'dagre';
+
 // VS Code API injection
 declare const acquireVsCodeApi: () => any;
 const vscode = acquireVsCodeApi();
@@ -17,44 +19,95 @@ const vscode = acquireVsCodeApi();
 const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
 
+const getLayoutedElements = (nodes: any[], edges: any[], direction = 'BT') => {
+    const dagreGraph = new dagre.graphlib.Graph();
+    dagreGraph.setDefaultEdgeLabel(() => ({}));
+  
+    const nodeWidth = 172;
+    const nodeHeight = 36;
+  
+    dagreGraph.setGraph({ rankdir: direction });
+  
+    nodes.forEach((node) => {
+      dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+    });
+  
+    edges.forEach((edge) => {
+      dagreGraph.setEdge(edge.source, edge.target);
+    });
+  
+    dagre.layout(dagreGraph);
+  
+    const layoutedNodes = nodes.map((node) => {
+      const nodeWithPosition = dagreGraph.node(node.id);
+      return {
+          ...node,
+          targetPosition: 'top',
+          sourcePosition: 'bottom',
+          position: {
+            x: nodeWithPosition.x - nodeWidth / 2,
+            y: nodeWithPosition.y - nodeHeight / 2,
+          },
+      };
+
+    });
+  
+    return { nodes: layoutedNodes, edges };
+  };
+
 export default function App() {
     const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
+    const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+        // Send message to VS Code
+        if (node.data && node.data.payload) {
+             vscode.postMessage({
+                type: 'navigate',
+                value: node.data.payload
+            });
+        }
+    }, []);
+
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
-            console.log('[Webview] Received message:', message);
             switch (message.type) {
                 case 'update':
                     const { nodes: rawNodes, edges: rawEdges } = message.data;
-                    console.log('[Webview] Updating state with nodes:', rawNodes.length, 'edges:', rawEdges.length);
                     
-                    // Simple layout: tree structure
-                    // For MVP just vertical spacing or ELK later. 
-                    // Let's do a naive manual layout for now or just random.
-                    // Ideally use a layout library like dagre. 
-                    // For now, let's just place them linearly or randomly to verify data connectivity.
-                   
-                    const newNodes: Node[] = rawNodes.map((n: any, index: number) => ({
+                    const flowNodes: Node[] = rawNodes.map((n: any) => ({
                         id: n.id,
-                        position: { x: 250, y: index * 100 },
-                        data: { label: n.name },
-                        style: n.isRoot ? { background: '#ffcccc' } : undefined
+                        position: { x: 0, y: 0 }, // Set by dagre
+                        data: { 
+                            label: n.name,
+                            payload: { file: n.file, line: n.line, character: n.character } 
+                        },
+                        style: n.isRoot ? { background: '#ffcccc' } : undefined,
+                        type: 'input' // or default
                     }));
 
-                    const newEdges: Edge[] = rawEdges.map((e: any) => ({
+                    const flowEdges: Edge[] = rawEdges.map((e: any) => ({
                         id: `${e.source}-${e.target}`,
                         source: e.source,
                         target: e.target,
                         label: e.type === 'conditional' ? '?' : undefined,
                         animated: e.type === 'conditional',
-                        style: { stroke: e.type === 'conditional' ? 'orange' : 'black' },
+                        style: { stroke: e.type === 'conditional' ? 'orange' : '#555' },
                         markerEnd: { type: MarkerType.ArrowClosed }
                     }));
+                    
+                    // Direction BT: Bottom to Top (Leaf at bottom, roots at top)
+                    // Or TB: Top to Bottom. Backward slicing usually implies Leaf at bottom? 
+                    // Let's try BT first.
+                    const { nodes: layoutNodes, edges: layoutEdges } = getLayoutedElements(
+                        flowNodes,
+                        flowEdges,
+                        'BT'
+                    );
 
-                    setNodes(newNodes);
-                    setEdges(newEdges);
+                    setNodes(layoutNodes);
+                    setEdges(layoutEdges);
                     break;
             }
         };
@@ -70,6 +123,8 @@ export default function App() {
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
+                onNodeClick={onNodeClick}
+                proOptions={{ hideAttribution: true }}
                 fitView
             >
                 <Background />

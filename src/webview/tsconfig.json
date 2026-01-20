@@ -6,7 +6,9 @@
     "jsx": "react-jsx",
     "moduleResolution": "node",
     "strict": true,
-    "noEmit": true
+    "noEmit": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true
   },
   "include": ["./**/*"]
 }

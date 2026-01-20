@@ -1,17 +1,26 @@
 import * as vscode from 'vscode';
-import { PanelManager } from './panel/PanelManager';
+import { SidebarProvider } from './panel/SidebarProvider';
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Bottom-Up Analyzer is now active!');
 
-	let disposable = vscode.commands.registerCommand('bottom-up-analyzer.start', () => {
-		PanelManager.createOrShow(context.extensionUri);
-        if (PanelManager.currentPanel) {
-            PanelManager.currentPanel.updateGraph();
-        }
-	});
+    const sidebarProvider = new SidebarProvider(context.extensionUri);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            SidebarProvider.viewType,
+            sidebarProvider
+        )
+    );
 
-	context.subscriptions.push(disposable);
+    // Update graph on selection change (cursor move) or document switch
+    context.subscriptions.push(
+        vscode.window.onDidChangeTextEditorSelection(() => {
+            sidebarProvider.updateGraph();
+        }),
+        vscode.window.onDidChangeActiveTextEditor(() => {
+            sidebarProvider.updateGraph();
+        })
+    );
 }
 
 export function deactivate() {}
