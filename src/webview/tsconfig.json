@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "module": "esnext",
+    "target": "es2020",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "jsx": "react-jsx",
+    "moduleResolution": "node",
+    "strict": true,
+    "noEmit": true
+  },
+  "include": ["./**/*"]
+}
