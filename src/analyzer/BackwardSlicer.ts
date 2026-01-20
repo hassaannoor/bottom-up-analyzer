@@ -17,8 +17,10 @@ export class BackwardSlicer {
         // 1. Find the leaf function
         const leaf = LeafDetector.getEnclosingFunction(document, position);
         if (!leaf) {
+            console.log('BackwardSlicer: No enclosing function found at cursor.');
             throw new Error("No function found at cursor position.");
         }
+        console.log(`BackwardSlicer: Found leaf function '${leaf.name}'`);
 
         const leafNodeId = this.getNodeId(document.uri, leaf.node);
         this.addNode(leafNodeId, leaf.name, document.uri, leaf.node);
@@ -32,6 +34,7 @@ export class BackwardSlicer {
 
         // Convert offset to position for VS Code API
         const namePos = document.positionAt(nameLocation);
+        console.log(`BackwardSlicer: Searching for references to '${leaf.name}' starting at`, namePos);
 
         await this.findCallersRecursive(leafNodeId, document.uri, namePos, 0);
 
@@ -45,18 +48,26 @@ export class BackwardSlicer {
         if (depth >= this.depthLimit) return;
 
         // Use VS Code's Reference Provider
+        console.log(`BackwardSlicer: [Depth ${depth}] Executing reference provider for ${uri.fsPath} at ${position.line}:${position.character}`);
         const references = await vscode.commands.executeCommand<vscode.Location[]>(
             'vscode.executeReferenceProvider',
             uri,
             position
         );
 
-        if (!references) return;
+        if (!references) {
+            console.log(`BackwardSlicer: [Depth ${depth}] No references returned.`);
+            return;
+        }
+        console.log(`BackwardSlicer: [Depth ${depth}] Found ${references.length} raw references.`);
 
         for (const ref of references) {
             // Skip self-references (definition site or recursive calls within same function for simplicity for now, though recursive calls are valid)
             // Ideally we filter out the definition itself.
-            if (ref.uri.toString() === uri.toString() && ref.range.contains(position)) continue;
+            if (ref.uri.toString() === uri.toString() && ref.range.contains(position)) {
+                 // console.log(`BackwardSlicer: [Depth ${depth}] Skipping self-reference.`);
+                 continue;
+            }
 
             // Open the document of the reference
             const refDoc = await vscode.workspace.openTextDocument(ref.uri);

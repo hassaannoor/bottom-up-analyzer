@@ -47,12 +47,21 @@ export class PanelManager {
     public async updateGraph() {
         // Trigger analysis from current editor cursor
         const editor = vscode.window.activeTextEditor;
-        if (!editor) return;
+        if (!editor) {
+            console.log('Bottom-Up Analyzer: No active editor found.');
+            return;
+        }
+
+        console.log(`Bottom-Up Analyzer: Starting analysis on ${editor.document.fileName} at ${editor.selection.active.line}:${editor.selection.active.character}`);
 
         try {
             const result = await this._slicer.analyze(editor.document, editor.selection.active);
-            this._panel.webview.postMessage({ type: 'update', data: result });
+            console.log('Bottom-Up Analyzer: Analysis complete. Result:', JSON.stringify(result, null, 2));
+            
+            const posted = await this._panel.webview.postMessage({ type: 'update', data: result });
+            console.log('Bottom-Up Analyzer: Message posted to webview. Success:', posted);
         } catch (e: any) {
+            console.error('Bottom-Up Analyzer: Analysis failed:', e);
             vscode.window.showErrorMessage(`Analysis failed: ${e.message}`);
         }
     }

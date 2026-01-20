@@ -24,9 +24,11 @@ export default function App() {
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
+            console.log('[Webview] Received message:', message);
             switch (message.type) {
                 case 'update':
                     const { nodes: rawNodes, edges: rawEdges } = message.data;
+                    console.log('[Webview] Updating state with nodes:', rawNodes.length, 'edges:', rawEdges.length);
                     
                     // Simple layout: tree structure
                     // For MVP just vertical spacing or ELK later. 
