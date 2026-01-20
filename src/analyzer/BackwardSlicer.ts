@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as ts from 'typescript';
+import * as path from 'path';
 import { AnalyzeNode, AnalyzeEdge, AnalysisResult } from './types';
 import { LeafDetector } from './LeafDetector';
 
@@ -83,11 +84,12 @@ export class BackwardSlicer {
             // Find who is calling
             const caller = LeafDetector.getEnclosingFunction(refDoc, ref.range.start);
             if (caller) {
-                const callerNodeId = this.getNodeId(ref.uri, caller.node);
+                // Check if caller is a PropertyAssignment (likely an export object)
+                // If so, we skip adding it to the graph but recurse using its references.
+                const isProperty = ts.isPropertyAssignment(caller.node) || ts.isShorthandPropertyAssignment(caller.node);
                 
-                // Add Node
-                if (!this.nodes.has(callerNodeId)) {
-                    this.addNode(callerNodeId, caller.name, ref.uri, caller.node, refDoc);
+                if (isProperty) {
+                    console.log(`BackwardSlicer: Skipping export/property node '${caller.name}' but recursing.`);
                     
                     // Recurse: To recurse, we need the position of the CALLER's name
                     let callerNamePos = refDoc.positionAt(caller.node.getStart());
@@ -96,23 +98,42 @@ export class BackwardSlicer {
                     } else if ((caller.node as any).name) {
                         callerNamePos = refDoc.positionAt((caller.node as any).name.getStart());
                     }
+
+                    // Pass the SAME targetNodeId so the next caller links to the original target
+                    await this.findCallersRecursive(targetNodeId, ref.uri, callerNamePos, depth); // Don't inc depth effectively? Or do we? Light depth penalty.
+                } else {
+                    const callerNodeId = this.getNodeId(ref.uri, caller.node);
                     
-                    await this.findCallersRecursive(callerNodeId, ref.uri, callerNamePos, depth + 1);
+                    // Add Node
+                    if (!this.nodes.has(callerNodeId)) {
+                        this.addNode(callerNodeId, caller.name, ref.uri, caller.node, refDoc);
+                        
+                        // Recurse: To recurse, we need the position of the CALLER's name
+                        let callerNamePos = refDoc.positionAt(caller.node.getStart());
+                        if (caller.nameNode) {
+                            callerNamePos = refDoc.positionAt(caller.nameNode.getStart());
+                        } else if ((caller.node as any).name) {
+                            callerNamePos = refDoc.positionAt((caller.node as any).name.getStart());
+                        }
+                        
+                        await this.findCallersRecursive(callerNodeId, ref.uri, callerNamePos, depth + 1);
+                    }
+    
+                    // Add Edge
+                    this.edges.push({
+                        source: callerNodeId,
+                        target: targetNodeId,
+                        type: this.isConditional(refDoc, ref.range.start) ? 'conditional' : 'certain'
+                    });
                 }
 
-                // Add Edge
-                this.edges.push({
-                    source: callerNodeId,
-                    target: targetNodeId,
-                    type: this.isConditional(refDoc, ref.range.start) ? 'conditional' : 'certain'
-                });
             } else {
                 // Top-level call or script scope
                  const rootId = `root-${ref.uri.fsPath}-${ref.range.start.line}`;
                  if (!this.nodes.has(rootId)) {
                     this.nodes.set(rootId, {
                         id: rootId,
-                        name: 'Script Root',
+                        name: path.basename(ref.uri.fsPath), // Use filename instead of 'Script Root'
                         file: ref.uri.fsPath,
                         line: ref.range.start.line,
                         character: ref.range.start.character,

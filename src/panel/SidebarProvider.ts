@@ -10,6 +10,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         this._slicer = new BackwardSlicer();
     }
 
+    private _isNavigating = false;
+
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         context: vscode.WebviewViewResolveContext,
@@ -31,11 +33,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 case 'navigate': {
                     if (!data.value) return;
                     try {
+                        this._isNavigating = true;
                         const uri = vscode.Uri.file(data.value.file);
                         const doc = await vscode.workspace.openTextDocument(uri);
-                        // TS position is 0-indexed? check types.
-                        // We stored node start/end or line. If we stored line, use it.
-                        // Our AnalyzeNode currently has line/char.
                         const pos = new vscode.Position(data.value.line, data.value.character);
                         const editor = await vscode.window.showTextDocument(doc, {
                             preview: true,
@@ -44,8 +44,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                         
                         editor.selection = new vscode.Selection(pos, pos);
                         editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+                        
+                        // Reset flag after a delay to allow selection events to fire and be ignored
+                        setTimeout(() => {
+                            this._isNavigating = false;
+                        }, 500);
+
                     } catch (e) {
                         console.error('Failed to navigate:', e);
+                        this._isNavigating = false;
                     }
                     break;
                 }
@@ -55,6 +62,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     public async updateGraph() {
         if (!this._view) {
+            return;
+        }
+        
+        if (this._isNavigating) {
+            console.log('SidebarProvider: Update skipped due to navigation.');
             return;
         }
 
