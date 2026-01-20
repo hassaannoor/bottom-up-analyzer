@@ -28,7 +28,10 @@ export class BackwardSlicer {
         // 2. Start slicing from the leaf
         // We need the location of the function *name* to find references
         let nameLocation = leaf.node.getStart();
-        if ((leaf.node as any).name) {
+        if (leaf.nameNode) {
+             nameLocation = leaf.nameNode.getStart();
+        } else if ((leaf.node as any).name) {
+            // Fallback for direct properties
              nameLocation = (leaf.node as any).name.getStart();
         }
 
@@ -88,7 +91,9 @@ export class BackwardSlicer {
                     
                     // Recurse: To recurse, we need the position of the CALLER's name
                     let callerNamePos = refDoc.positionAt(caller.node.getStart());
-                     if ((caller.node as any).name) {
+                    if (caller.nameNode) {
+                        callerNamePos = refDoc.positionAt(caller.nameNode.getStart());
+                    } else if ((caller.node as any).name) {
                         callerNamePos = refDoc.positionAt((caller.node as any).name.getStart());
                     }
                     
