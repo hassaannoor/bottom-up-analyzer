@@ -82,7 +82,60 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
         try {
             const result = await this._slicer.analyze(editor.document, editor.selection.active);
-            this._view.webview.postMessage({ type: 'update', data: result });
+            
+            // Enrich nodes with smart relative path for grouping label
+            // Strategy:
+            // 1. Get relative path for all files.
+            // 2. Compute default label: parent/filename
+            // 3. Detect collisions.
+            // 4. For collisions, use grandparent/parent/filename.
+            
+            const filePaths = Array.from(new Set(result.nodes.map(n => n.file)));
+            const labelMap = new Map<string, string>();
+            const labelCounts = new Map<string, string[]>();
+
+            // Pass 1: Default labels
+            for (const file of filePaths) {
+                const relative = vscode.workspace.asRelativePath(file);
+                const parts = relative.split('/'); // or path.sep if specialized, but vscode URI usually forward slash
+                
+                let label = relative;
+                if (parts.length >= 2) {
+                    label = parts.slice(-2).join('/');
+                }
+                
+                labelMap.set(file, label);
+                
+                if (!labelCounts.has(label)) {
+                    labelCounts.set(label, []);
+                }
+                labelCounts.get(label)!.push(file);
+            }
+
+            // Pass 2: Resolve collisions
+            for (const [label, files] of labelCounts.entries()) {
+                if (files.length > 1) {
+                    for (const file of files) {
+                        const relative = vscode.workspace.asRelativePath(file);
+                        const parts = relative.split('/');
+                        
+                        let newLabel = label;
+                        if (parts.length >= 3) {
+                            newLabel = parts.slice(-3).join('/');
+                        } else {
+                            // Can't expand further, stick with full relative path if really needed, or just what we have
+                            newLabel = relative;
+                        }
+                        labelMap.set(file, newLabel);
+                    }
+                }
+            }
+
+            const enrichedNodes = result.nodes.map(n => {
+                return { ...n, fileLabel: labelMap.get(n.file) || 'unknown' };
+            });
+
+            this._view.webview.postMessage({ type: 'update', data: { ...result, nodes: enrichedNodes } });
         } catch (e: any) {
             // console.error(e); 
             // Don't toast error on every click if it fails (e.g. whitespace)
