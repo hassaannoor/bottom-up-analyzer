@@ -167,7 +167,12 @@ export class BackwardSlicer {
                     this.edges.push({
                         source: callerNodeId,
                         target: targetNodeId,
-                        type: this.isConditional(refDoc, ref.range.start) ? 'conditional' : 'certain'
+                        type: this.isConditional(refDoc, ref.range.start) ? 'conditional' : 'certain',
+                        callSite: {
+                            file: ref.uri.fsPath,
+                            line: ref.range.start.line,
+                            character: ref.range.start.character
+                        }
                     });
                 }
 
@@ -187,7 +192,12 @@ export class BackwardSlicer {
                  this.edges.push({
                     source: rootId,
                     target: targetNodeId,
-                    type: 'certain'
+                    type: 'certain',
+                    callSite: {
+                        file: ref.uri.fsPath,
+                        line: ref.range.start.line,
+                        character: ref.range.start.character
+                    }
                  });
             }
         }

@@ -5,6 +5,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'bottomUpAnalyzerView';
     private _view?: vscode.WebviewView;
     private readonly _slicer: BackwardSlicer;
+    private _isVisible = false;
 
     constructor(private readonly _extensionUri: vscode.Uri) {
         this._slicer = new BackwardSlicer();
@@ -18,6 +19,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
+        this._isVisible = webviewView.visible;
 
         webviewView.webview.options = {
             enableScripts: true,
@@ -27,6 +29,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         };
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+        // Track visibility changes
+        webviewView.onDidChangeVisibility(() => {
+            this._isVisible = webviewView.visible;
+            console.log(`SidebarProvider: Visibility changed to ${this._isVisible}`);
+            // Trigger analysis when view becomes visible
+            if (this._isVisible) {
+                this.updateGraph();
+            }
+        });
 
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.type) {
@@ -62,6 +74,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     public async updateGraph() {
         if (!this._view) {
+            return;
+        }
+        
+        // Don't process if view is not visible
+        if (!this._isVisible) {
+            console.log('SidebarProvider: Skipping analysis - view not visible');
             return;
         }
         

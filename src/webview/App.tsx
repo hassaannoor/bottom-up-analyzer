@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import ReactFlow, { 
     Node, 
     Edge, 
@@ -6,7 +6,8 @@ import ReactFlow, {
     Controls, 
     useNodesState, 
     useEdgesState,
-    MarkerType
+    MarkerType,
+    ReactFlowInstance
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -174,6 +175,7 @@ const GroupNode = ({ data, style }: any) => {
 export default function App() {
     const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+    const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
 
     const nodeTypes = React.useMemo(() => ({ group: GroupNode }), []);
 
@@ -186,6 +188,10 @@ export default function App() {
         }
     }, []);
 
+    const setInstance = useCallback((instance: ReactFlowInstance) => {
+        reactFlowInstance.current = instance;
+    }, []);
+
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
@@ -193,19 +199,23 @@ export default function App() {
                 case 'update':
                     const { nodes: rawNodes, edges: rawEdges } = message.data;
                     
-                    const flowNodes: Node[] = rawNodes.map((n: any) => ({
+                    const flowNodes: Node[] = rawNodes.map((n: any) => {
+                        // Find first outgoing edge to get call site location
+                        const outgoingEdge = rawEdges.find((e: any) => e.source === n.id);
+                        return {
                         id: n.id,
                         position: { x: 0, y: 0 },
                         data: { 
                             label: n.name,
                             fileLabel: n.fileLabel,
-                            payload: { file: n.file, line: n.line, character: n.character } 
+                            payload: outgoingEdge?.callSite || { file: n.file, line: n.line, character: n.character }
                         },
                         style: n.isRoot ? { background: '#5c2b2b', color: '#fff', border: '1px solid #ff9999' } : 
                                           { background: '#1e1e1e', color: '#fff', border: '1px solid #777' }, // Dark theme friendly
                         type: 'default',
                         draggable: false  // Prevent dragging to avoid artifacts with parent-child nodes
-                    }));
+                    };
+                    });
 
                     const flowEdges: Edge[] = rawEdges.map((e: any) => ({
                         id: `${e.source}-${e.target}`,
@@ -229,6 +239,13 @@ export default function App() {
 
                     setNodes(layoutNodes);
                     setEdges(layoutEdges);
+                    
+                    // Auto-fit view after layout is complete
+                    setTimeout(() => {
+                        if (reactFlowInstance.current) {
+                            reactFlowInstance.current.fitView({ padding: 0.2, duration: 300 });
+                        }
+                    }, 50);
                     break;
             }
         };
@@ -247,6 +264,7 @@ export default function App() {
                 onNodeClick={onNodeClick}
                 nodeTypes={nodeTypes}
                 proOptions={{ hideAttribution: true }}
+                onInit={setInstance}
                 fitView
             >
                 <Background />

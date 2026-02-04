@@ -16,6 +16,12 @@ export interface AnalyzeEdge {
     target: NodeId;
     type: 'certain' | 'conditional';
     conditionLabel?: string;
+    // Call site location - where source calls target
+    callSite?: {
+        file: string;
+        line: number;
+        character: number;
+    };
 }
 
 export interface AnalysisResult {
