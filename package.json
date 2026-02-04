@@ -3,6 +3,7 @@
   "displayName": "Bottom-Up Analyzer",
   "description": "Visual backward slicing tool for TypeScript",
   "version": "0.0.1",
+  "publisher": "HassaanNoor",
   "engines": {
     "vscode": "^1.80.0"
   },
