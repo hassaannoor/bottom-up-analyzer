@@ -66,6 +66,8 @@ const getClusteredLayout = (nodes: any[], edges: any[], direction = 'TB') => {
         
         groupMembers.forEach(node => {
             const n = innerGraph.node(node.id);
+            if (!n) return; // Skip if dagre didn't layout this node
+            
             // Position relative to group
             const x = n.x - 180 / 2;
             const y = n.y - 40 / 2;
@@ -88,12 +90,13 @@ const getClusteredLayout = (nodes: any[], edges: any[], direction = 'TB') => {
         
         // Dagre coordinates might start anywhere. Normalize inner nodes so top-left is at padding.
         const padding = 40; // Title space
-        const groupWidth = (maxX - minX) + 20; // + padding
-        const groupHeight = (maxY - minY) + 50; // + title padding
+        // Handle case where no nodes were laid out
+        const groupWidth = (minX === Infinity || maxX === -Infinity) ? 200 : (maxX - minX) + 20;
+        const groupHeight = (minY === Infinity || maxY === -Infinity) ? 100 : (maxY - minY) + 50;
 
         // Shift all children to be positive within the group
         layoutedNodes.forEach(node => {
-            if (node.parentNode === fileLabel) {
+            if (node.parentNode === fileLabel && minX !== Infinity && minY !== Infinity) {
                 node.position.x = (node.position.x - minX) + 10;
                 node.position.y = (node.position.y - minY) + 40;
             }
@@ -137,7 +140,8 @@ const getClusteredLayout = (nodes: any[], edges: any[], direction = 'TB') => {
                 fontWeight: 'bold',
                 paddingTop: '10px'
             },
-            type: 'group' // Built-in group type might need explicit handling or just default with style
+            type: 'group',
+            draggable: false  // Prevent dragging group nodes too
         });
     });
 
@@ -199,7 +203,8 @@ export default function App() {
                         },
                         style: n.isRoot ? { background: '#5c2b2b', color: '#fff', border: '1px solid #ff9999' } : 
                                           { background: '#1e1e1e', color: '#fff', border: '1px solid #777' }, // Dark theme friendly
-                        type: 'default' 
+                        type: 'default',
+                        draggable: false  // Prevent dragging to avoid artifacts with parent-child nodes
                     }));
 
                     const flowEdges: Edge[] = rawEdges.map((e: any) => ({

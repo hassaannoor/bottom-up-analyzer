@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as ts from 'typescript';
 import * as path from 'path';
-import { AnalyzeNode, AnalyzeEdge, AnalysisResult } from './types';
+import { AnalyzeNode, AnalyzeEdge, AnalysisResult, ProgressCallback } from './types';
 import { LeafDetector } from './LeafDetector';
 
 export class BackwardSlicer {
@@ -9,11 +9,30 @@ export class BackwardSlicer {
     private nodes: Map<string, AnalyzeNode> = new Map();
     private edges: AnalyzeEdge[] = [];
     private depthLimit = 5;
+    private timeBudgetMs = 1000; // 1 second time budget
+    private analysisStartTime = 0;
+    private isTimedOut = false;
+    private progressCallback?: ProgressCallback;
+    private lastProgressEmitTime = 0;
+    private progressEmitIntervalMs = 100; // Emit progress every 100ms
+    
+    // AST Cache: uri.toString() -> SourceFile
+    private static astCache = new Map<string, ts.SourceFile>();
+    private static MAX_CACHE_SIZE = 50;
 
-    public async analyze(document: vscode.TextDocument, position: vscode.Position): Promise<AnalysisResult> {
+    public async analyze(
+        document: vscode.TextDocument, 
+        position: vscode.Position,
+        progressCallback?: ProgressCallback
+    ): Promise<AnalysisResult> {
         this.visited.clear();
         this.nodes.clear();
         this.edges = [];
+        this.analysisStartTime = Date.now();
+        this.lastProgressEmitTime = this.analysisStartTime;
+        this.isTimedOut = false;
+        this.progressCallback = progressCallback;
+        console.log('BackwardSlicer: Analysis started');
 
         // 1. Find the leaf function
         const leaf = LeafDetector.getEnclosingFunction(document, position);
@@ -42,13 +61,35 @@ export class BackwardSlicer {
 
         await this.findCallersRecursive(leafNodeId, document.uri, namePos, 0);
 
-        return {
+        const elapsedMs = Date.now() - this.analysisStartTime;
+        console.log(`BackwardSlicer: Analysis completed in ${elapsedMs}ms${this.isTimedOut ? ' (TIMED OUT - partial results)' : ''}`);
+        console.log(`BackwardSlicer: Found ${this.nodes.size} nodes and ${this.edges.length} edges`);
+
+        const result = {
             nodes: Array.from(this.nodes.values()),
-            edges: this.edges
+            edges: this.edges,
+            isPartial: this.isTimedOut,
+            timeElapsedMs: elapsedMs
         };
+        
+        // Emit final update if callback was provided
+        if (this.progressCallback) {
+            this.progressCallback(result);
+        }
+        
+        return result;
     }
 
     private async findCallersRecursive(targetNodeId: string, uri: vscode.Uri, position: vscode.Position, depth: number) {
+        // Check time budget
+        if (Date.now() - this.analysisStartTime > this.timeBudgetMs) {
+            if (!this.isTimedOut) {
+                console.log('BackwardSlicer: Time budget exceeded, returning partial results');
+                this.isTimedOut = true;
+            }
+            return;
+        }
+        
         if (depth >= this.depthLimit) return;
 
         // Use VS Code's Reference Provider
@@ -107,6 +148,9 @@ export class BackwardSlicer {
                     // Add Node
                     if (!this.nodes.has(callerNodeId)) {
                         this.addNode(callerNodeId, caller.name, ref.uri, caller.node, refDoc);
+                        
+                        // Emit progress update if enough time has passed
+                        this.emitProgressIfNeeded();
                         
                         // Recurse: To recurse, we need the position of the CALLER's name
                         let callerNamePos = refDoc.positionAt(caller.node.getStart());
@@ -175,7 +219,7 @@ export class BackwardSlicer {
     }
 
     private isValidReferenceUsage(document: vscode.TextDocument, position: vscode.Position): boolean {
-        const sf = ts.createSourceFile(document.fileName, document.getText(), ts.ScriptTarget.Latest, true);
+        const sf = this.getOrCreateSourceFile(document);
         const offset = document.offsetAt(position);
         
         const node = this.getNodeAtOffset(sf, offset);
@@ -232,7 +276,7 @@ export class BackwardSlicer {
     }
 
     private isConditional(document: vscode.TextDocument, position: vscode.Position): boolean {
-        const sf = ts.createSourceFile(document.fileName, document.getText(), ts.ScriptTarget.Latest, true);
+        const sf = this.getOrCreateSourceFile(document);
         const offset = document.offsetAt(position);
         
         let path: ts.Node[] = [];
@@ -277,5 +321,57 @@ export class BackwardSlicer {
         }
         visit(sourceFile);
         return found;
+    }
+
+    private emitProgressIfNeeded() {
+        if (!this.progressCallback) return;
+        
+        const now = Date.now();
+        if (now - this.lastProgressEmitTime >= this.progressEmitIntervalMs) {
+            this.lastProgressEmitTime = now;
+            this.progressCallback({
+                nodes: Array.from(this.nodes.values()),
+                edges: this.edges,
+                isPartial: true,
+                timeElapsedMs: now - this.analysisStartTime
+            });
+        }
+    }
+
+    private getOrCreateSourceFile(document: vscode.TextDocument): ts.SourceFile {
+        const key = document.uri.toString();
+        const cached = BackwardSlicer.astCache.get(key);
+        
+        if (cached) {
+            // Simple validation: check if text length matches (rough check)
+            if (cached.text.length === document.getText().length) {
+                return cached;
+            }
+        }
+        
+        // Parse and cache
+        const sf = ts.createSourceFile(
+            document.fileName,
+            document.getText(),
+            ts.ScriptTarget.Latest,
+            true
+        );
+        
+        // Manage cache size
+        if (BackwardSlicer.astCache.size >= BackwardSlicer.MAX_CACHE_SIZE) {
+            // Simple eviction: delete first entry
+            const firstKey = BackwardSlicer.astCache.keys().next().value;
+            if (firstKey) {
+                BackwardSlicer.astCache.delete(firstKey);
+            }
+        }
+        
+        BackwardSlicer.astCache.set(key, sf);
+        return sf;
+    }
+
+    // Clear cache when documents change significantly
+    public static clearCache() {
+        BackwardSlicer.astCache.clear();
     }
 }

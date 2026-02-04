@@ -81,16 +81,38 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         console.log(`SidebarProvider: Starting analysis on ${editor.document.fileName}`);
 
         try {
+            // Progress callback for streaming updates
+            // Note: Disabled for now as partial updates can break React Flow parent-child layout
+            // const progressCallback = (partialResult: any) => {
+            //     if (this._view) {
+            //         const enrichedNodes = this.enrichNodesWithLabels(partialResult.nodes);
+            //         this._view.webview.postMessage({ 
+            //             type: 'update', 
+            //             data: { ...partialResult, nodes: enrichedNodes } 
+            //         });
+            //     }
+            // };
+
             const result = await this._slicer.analyze(editor.document, editor.selection.active);
             
-            // Enrich nodes with smart relative path for grouping label
-            // Strategy:
-            // 1. Get relative path for all files.
-            // 2. Compute default label: parent/filename
-            // 3. Detect collisions.
-            // 4. For collisions, use grandparent/parent/filename.
+            // Send final complete result with enriched labels
+            const enrichedNodes = this.enrichNodesWithLabels(result.nodes);
+            this._view.webview.postMessage({ 
+                type: 'update', 
+                data: { ...result, nodes: enrichedNodes } 
+            });
             
-            const filePaths = Array.from(new Set(result.nodes.map(n => n.file)));
+            console.log(`SidebarProvider: Analysis complete - ${result.nodes.length} nodes, ${result.edges.length} edges${result.isPartial ? ' (PARTIAL)' : ''}`);
+        } catch (e: any) {
+            // console.error(e); 
+            // Don't toast error on every click if it fails (e.g. whitespace)
+            // Just maybe log?
+        }
+    }
+
+    private enrichNodesWithLabels(nodes: any[]) {
+        // Extract label enrichment logic into helper
+        const filePaths = Array.from(new Set(nodes.map(n => n.file).filter(f => f)));
             const labelMap = new Map<string, string>();
             const labelCounts = new Map<string, string[]>();
 
@@ -131,16 +153,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 }
             }
 
-            const enrichedNodes = result.nodes.map(n => {
+            return nodes.map(n => {
                 return { ...n, fileLabel: labelMap.get(n.file) || 'unknown' };
             });
-
-            this._view.webview.postMessage({ type: 'update', data: { ...result, nodes: enrichedNodes } });
-        } catch (e: any) {
-            // console.error(e); 
-            // Don't toast error on every click if it fails (e.g. whitespace)
-            // Just maybe log?
-        }
     }
 
     private _getHtmlForWebview(webview: vscode.Webview) {

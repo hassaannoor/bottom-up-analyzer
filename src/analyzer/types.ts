@@ -21,4 +21,8 @@ export interface AnalyzeEdge {
 export interface AnalysisResult {
     nodes: AnalyzeNode[];
     edges: AnalyzeEdge[];
+    isPartial?: boolean; // True if analysis was stopped early
+    timeElapsedMs?: number; // Time taken for analysis
 }
+
+export type ProgressCallback = (result: AnalysisResult) => void;
